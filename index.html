@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GATE & SSC Tech Study Plan</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+        .container-wrapper {
+            max-width: 90%;
+            margin: auto;
+            padding: 2rem 1rem;
+        }
+        .card {
+            background-color: white;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #4b5563;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+        }
+        .section-title svg {
+            margin-right: 0.75rem;
+            color: #10b981;
+        }
+        .phase-toggle {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .phase-toggle:last-of-type {
+            border-bottom: none;
+        }
+        .phase-content {
+            display: none;
+            padding-top: 1rem;
+        }
+        .phase-content.active {
+            display: block;
+        }
+        .timetable-row {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem 0;
+        }
+        @media (min-width: 768px) {
+            .timetable-row {
+                flex-direction: row;
+            }
+            .timetable-row > div {
+                flex: 1;
+                padding: 0 0.5rem;
+            }
+        }
+        .timetable-row:first-of-type {
+            border-top: 1px solid #e5e7eb;
+        }
+        .timetable-header {
+            font-weight: 600;
+            color: #4b5563;
+            margin-bottom: 0.5rem;
+        }
+        .youtube-link {
+            color: #ef4444; /* Red color for YouTube */
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            margin-top: 0.5rem;
+        }
+        .youtube-link svg {
+            margin-right: 0.5rem;
+        }
+        .youtube-link:hover {
+            text-decoration: underline;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script type="module">
+        // Import necessary Firebase SDKs from CDN
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let userId;
+
+        // Message box functions instead of alert()
+        function showMessage(message, type = 'info') {
+            const messageBox = document.getElementById('message-box');
+            messageBox.textContent = message;
+            messageBox.className = `p-2 mt-4 rounded-md text-sm text-center ${type === 'error' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}`;
+            messageBox.style.display = 'block';
+            setTimeout(() => {
+                messageBox.style.display = 'none';
+            }, 3000);
+        }
+
+        // Initialize Firebase and authenticate the user
+        async function initializeFirebase() {
+            try {
+                // Initialize Firebase app
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Authenticate with the provided custom token or anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser.uid;
+                document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
+                
+                // Once authenticated, start listening for data
+                fetchProgress();
+            } catch (e) {
+                console.error("Error during Firebase initialization or sign-in: ", e);
+                showMessage('Failed to load study plan. Please try again.', 'error');
+            }
+        }
+
+        // Get today's date in YYYY-MM-DD format
+        function getTodayDate() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Fetch and listen for real-time progress updates
+        async function fetchProgress() {
+            if (!db || !userId) return;
+
+            // Get the document for the current user and date
+            const docRef = doc(db, `artifacts/${appId}/users/${userId}/daily-progress`, getTodayDate());
+            const loader = document.getElementById('loader');
+            loader.style.display = 'block';
+
+            // Use onSnapshot to get real-time updates
+            onSnapshot(docRef, (docSnap) => {
+                loader.style.display = 'none';
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    console.log("Current data: ", data);
+                    // Update checkboxes based on fetched data
+                    const sessions = ['morning', 'evening', 'night'];
+                    sessions.forEach(session => {
+                        const checkbox = document.getElementById(`${session}-checkbox`);
+                        if (checkbox) {
+                            checkbox.checked = data[session] || false;
+                        }
+                    });
+                } else {
+                    console.log("No progress data for today.");
+                    // Reset checkboxes if no data exists
+                    ['morning', 'evening', 'night'].forEach(session => {
+                        const checkbox = document.getElementById(`${session}-checkbox`);
+                        if (checkbox) {
+                            checkbox.checked = false;
+                        }
+                    });
+                }
+            }, (error) => {
+                console.error("Error fetching document: ", error);
+                showMessage("Error fetching progress. Please check your connection.", 'error');
+                loader.style.display = 'none';
+            });
+        }
+
+        // Update the progress in Firestore when a checkbox is toggled
+        async function updateProgress(session, isCompleted) {
+            if (!db || !userId) return;
+            const docRef = doc(db, `artifacts/${appId}/users/${userId}/daily-progress`, getTodayDate());
+
+            try {
+                // Fetch the existing document to avoid overwriting other fields
+                const docSnap = await getDoc(docRef);
+                const dataToSave = docSnap.exists() ? docSnap.data() : {};
+                
+                // Update the specific session and set the document
+                dataToSave[session] = isCompleted;
+                await setDoc(docRef, dataToSave, { merge: true });
+                showMessage("Progress updated successfully!");
+            } catch (e) {
+                console.error("Error updating progress: ", e);
+                showMessage("Failed to save progress. Please try again.", 'error');
+            }
+        }
+
+        // Event listener for checkbox changes
+        document.addEventListener('change', (event) => {
+            if (event.target.type === 'checkbox' && event.target.id.endsWith('-checkbox')) {
+                const session = event.target.id.replace('-checkbox', '');
+                const isCompleted = event.target.checked;
+                updateProgress(session, isCompleted);
+            }
+        });
+
+        // Event listener for collapsible sections
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggles = document.querySelectorAll('.phase-toggle');
+            toggles.forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    const targetId = toggle.getAttribute('data-target');
+                    const targetContent = document.getElementById(targetId);
+                    const arrowIcon = toggle.querySelector('svg');
+
+                    if (targetContent.classList.contains('active')) {
+                        targetContent.classList.remove('active');
+                        arrowIcon.classList.remove('rotate-180');
+                    } else {
+                        document.querySelectorAll('.phase-content.active').forEach(openContent => {
+                            openContent.classList.remove('active');
+                            const openToggle = document.querySelector(`[data-target="${openContent.id}"]`);
+                            if (openToggle) {
+                                openToggle.querySelector('svg').classList.remove('rotate-180');
+                            }
+                        });
+                        targetContent.classList.add('active');
+                        arrowIcon.classList.add('rotate-180');
+                    }
+                });
+            });
+            initializeFirebase();
+        });
+    </script>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container-wrapper">
+
+        <!-- Header Section -->
+        <header class="text-center mb-12">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-2">GATE PI 2026 & SSC Tech Study Plan</h1>
+            <p class="text-lg text-gray-600">Updated 6-hour daily plan with fitness integration</p>
+            <div class="flex flex-col sm:flex-row justify-center items-center mt-4 space-y-2 sm:space-y-0 sm:space-x-4">
+                <span class="bg-teal-500 text-white text-sm font-semibold px-4 py-1 rounded-full">🎯 Target: GATE AIR 300+</span>
+                <span class="bg-orange-400 text-white text-sm font-semibold px-4 py-1 rounded-full">🏆 Target: SSC Tech Selection</span>
+            </div>
+            <div id="user-id-display" class="mt-4 text-xs text-gray-500"></div>
+            <div id="message-box" style="display:none;"></div>
+            <div id="loader" class="loader mx-auto mt-4" style="display:none;"></div>
+        </header>
+
+        <!-- Success Metrics & Goals Card -->
+        <div class="card">
+            <h2 class="section-title">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Success Metrics
+            </h2>
+            <div class="grid md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="font-bold text-gray-800 text-lg mb-2">GATE Target Breakdown</h3>
+                    <p class="text-sm text-gray-600">Aim for 51+ marks for an AIR 200-300</p>
+                    <ul class="list-disc list-inside mt-2 text-gray-700 space-y-1 text-sm">
+                        <li>General Engineering: 18.4 marks (80% accuracy)</li>
+                        <li>Manufacturing Processes: 16.5 marks (75% accuracy)</li>
+                        <li>Operations Research: 7.7 marks (70% accuracy)</li>
+                        <li>Engineering Mathematics: 8.5 marks (65% accuracy)</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-800 text-lg mb-2">Fitness Goals</h3>
+                    <p class="text-sm text-gray-600">Maintain physical and mental well-being</p>
+                    <ul class="list-disc list-inside mt-2 text-gray-700 space-y-1 text-sm">
+                        <li>Total Weight Loss: 10-12 kg over 5 months</li>
+                        <li>Monthly Breakdown: 2-3 kg (Sep-Nov), Maintain (Dec-Jan)</li>
+                        <li>Fitness Metrics: 30+ push-ups, 5+ pull-ups, 2.4km run &lt;11 min</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timetable Card (Collapsible) -->
+        <div class="card">
+            <h2 class="section-title">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Complete Timetable
+            </h2>
+            
+            <!-- Phase 1 -->
+            <div class="mb-4">
+                <div class="phase-toggle" data-target="phase1-content">
+                    <h3 class="font-bold text-xl text-gray-800">Phase 1: Foundation Building (Sep 1 - Oct 31)</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div id="phase1-content" class="phase-content">
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 1 (Sep 1-7)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Linear Algebra (Matrix, Eigenvalues)</p>
+                            <a href="https://www.youtube.com/watch?v=fGx7l88_P60&list=PL4981E29B63B48F0D" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                NPTEL Linear Algebra
+                            </a>
+                            <p class="text-sm"><strong>Evening:</strong> GATE Previous Papers (2020-2024 Math sections)</p>
+                            <a href="https://www.youtube.com/playlist?list=PL_Jk92o_y_d5-kQ1x_QyR9-d0s8e8w_yG" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                GATE Mechanical PYQ Solutions
+                            </a>
+                            <p class="text-sm"><strong>Night:</strong> SSB Current Affairs (Defense updates)</p>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-2 md:mt-0">
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="morning-checkbox" class="rounded text-green-500"> Morning</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="evening-checkbox" class="rounded text-green-500"> Evening</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="night-checkbox" class="rounded text-green-500"> Night</label>
+                        </div>
+                    </div>
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 2-3 (Sep 8-21)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Calculus Basics</p>
+                            <a href="https://www.youtube.com/playlist?list=PLDesaqWTN6x1W9VSL64x-TfA0_F2oQhV9" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                GATE Academy Calculus
+                            </a>
+                        </div>
+                    </div>
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 4-5 (Sep 22-Oct 5)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Engineering Materials (Properties, heat treatment)</p>
+                            <a href="https://www.youtube.com/playlist?list=PLm_mszC_d_jG31g9eL63w9yR6c8R_yO6J" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                NPTEL Engineering Materials
+                            </a>
+                        </div>
+                    </div>
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 6-7 (Oct 6-19)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Thermal Engineering (Thermodynamics basics)</p>
+                            <a href="https://www.youtube.com/playlist?list=PL_tEaP4JqYlXhFqf1L6c2cW70V9Xg_J_U" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                NPTEL Thermodynamics
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Phase 2 -->
+            <div class="mb-4">
+                <div class="phase-toggle" data-target="phase2-content">
+                    <h3 class="font-bold text-xl text-gray-800">Phase 2: Skill Development (Nov 3 - Nov 30)</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div id="phase2-content" class="phase-content">
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 10 (Nov 3-9)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Machining Operations</p>
+                            <a href="https://www.youtube.com/playlist?list=PL066423985F8425F4" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                NPTEL Manufacturing Processes
+                            </a>
+                            <p class="text-sm"><strong>Evening:</strong> Cutting Force Calculations</p>
+                            <p class="text-sm"><strong>Night:</strong> SSB Group Tasks Practice</p>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-2 md:mt-0">
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="morning-checkbox" class="rounded text-green-500"> Morning</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="evening-checkbox" class="rounded text-green-500"> Evening</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="night-checkbox" class="rounded text-green-500"> Night</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Phase 3 -->
+            <div class="mb-4">
+                <div class="phase-toggle" data-target="phase3-content">
+                    <h3 class="font-bold text-xl text-gray-800">Phase 3: Peak Performance (Dec 1 - Dec 31)</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div id="phase3-content" class="phase-content">
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 14 (Dec 1-7)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Transportation Problems (OR)</p>
+                            <a href="https://www.youtube.com/playlist?list=PL7j6m6W_QzP7L9qg86j1o4sH4R0p_fD-l" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                NPTEL Operations Research
+                            </a>
+                            <p class="text-sm"><strong>Evening:</strong> Assignment Problems</p>
+                            <p class="text-sm"><strong>Night:</strong> SSB Interview Prep</p>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-2 md:mt-0">
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="morning-checkbox" class="rounded text-green-500"> Morning</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="evening-checkbox" class="rounded text-green-500"> Evening</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="night-checkbox" class="rounded text-green-500"> Night</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phase 4 -->
+            <div class="mb-4">
+                <div class="phase-toggle" data-target="phase4-content">
+                    <h3 class="font-bold text-xl text-gray-800">Phase 4: Final Sprint (Jan 1 - Feb 7)</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div id="phase4-content" class="phase-content">
+                    <div class="timetable-row">
+                        <div class="timetable-header">Week 18-22 (Jan 5 - Feb 7)</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="text-sm"><strong>Morning:</strong> Mock Tests & Revision</p>
+                            <a href="https://www.youtube.com/playlist?list=PL_Jk92o_y_d6b9q-j-i0o5qQc1pP-c0nN" target="_blank" class="youtube-link text-xs">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                    <path d="M19.5 4.5a3 3 0 0 0-3-3h-10a3 3 0 0 0-3 3v15a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V4.5Z" />
+                                    <path fill-rule="evenodd" d="M8.25 6.75a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75H9a.75.75 0 0 0-.75.75Zm4.5-3a.75.75 0 0 1 .75-.75h.008c.414 0 .75.336.75.75v.008a.75.75 0 0 1-.75.75h-.008a.75.75 0 0 1-.75-.75Zm.75.75a.75.75 0 0 0 .75.75h.008a.75.75 0 0 0 .75-.75v-.008a.75.75 0 0 0-.75-.75h-.008a.75.75 0 0 0-.75.75Z" clip-rule="evenodd" />
+                                </svg>
+                                GATE PI PYQ Solutions
+                            </a>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-2 md:mt-0">
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="morning-checkbox" class="rounded text-green-500"> Morning</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="evening-checkbox" class="rounded text-green-500"> Evening</label>
+                            <label class="flex items-center space-x-1 text-sm text-gray-700"><input type="checkbox" id="night-checkbox" class="rounded text-green-500"> Night</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Daily Schedule Card -->
+        <div class="card">
+            <h2 class="section-title">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Daily Schedule (6 Hours)
+            </h2>
+            <div class="space-y-6 text-gray-700">
+                <div>
+                    <h3 class="font-bold text-gray-800 text-lg mb-1">🌅 Morning Routine (6:00-8:00 AM)</h3>
+                    <ul class="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>6:00-6:45 AM:</strong> Fitness (45 min) - Cardio + Strength / HIIT</li>
+                        <li><strong>6:45-7:00 AM:</strong> Refresh + Breakfast</li>
+                        <li><strong>7:00-8:00 AM:</strong> High-Priority Study (60 min)</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-800 text-lg mb-1">🌆 Evening Session (4:00-6:30 PM)</h3>
+                    <ul class="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>4:00-4:10 PM:</strong> Quick Break + Snack</li>
+                        <li><strong>4:10-5:40 PM:</strong> Problem Solving (90 min)</li>
+                        <li><strong>5:40-6:30 PM:</strong> Revision + Notes (50 min)</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-800 text-lg mb-1">🌙 Night Session (8:00-10:00 PM)</h3>
+                    <ul class="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>8:00-9:00 PM:</strong> Secondary Topics (SSB prep, current affairs)</li>
+                        <li><strong>9:00-10:00 PM:</strong> Mock Tests/Analysis (60 min)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Emergency Protocols Card -->
+        <div class="card bg-red-50">
+            <h2 class="section-title text-red-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.414 12L19 6.414A.75.75 0 0018.586 6L13 11.586l-5.586-5.586A.75.75 0 006 6.414L11.586 12l-5.586 5.586A.75.75 0 006.414 18L12 12.414l5.586 5.586A.75.75 0 0018 17.586L12.414 12z" />
+                </svg>
+                Emergency Protocols
+            </h2>
+            <div class="grid md:grid-cols-3 gap-6 text-red-800">
+                <div>
+                    <h3 class="font-bold text-red-900 mb-1">If Behind Schedule</h3>
+                    <ul class="list-disc list-inside text-sm">
+                        <li>Focus only on high-priority topics (General Engineering, OR).</li>
+                        <li>Reduce fitness to 30 min/day.</li>
+                        <li>Increase study to 7 hours if necessary.</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold text-red-900 mb-1">If Health Issues</h3>
+                    <ul class="list-disc list-inside text-sm">
+                        <li>Reduce study to 4 hours.</li>
+                        <li>Prioritize rest and light exercise.</li>
+                        <li>Focus on revision, not new topics.</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold text-red-900 mb-1">Study Motivation Crisis</h3>
+                    <ul class="list-disc list-inside text-sm">
+                        <li>Watch GATE Topper interviews.</li>
+                        <li>Connect with study groups.</li>
+                        <li>Take a 1-2 day complete break.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
